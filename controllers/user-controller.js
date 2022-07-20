@@ -3,6 +3,7 @@ const db = require('../models')
 const { User, Comment, Restaurant, Favorite, Like, Followship } = db
 
 const { imgurFileHelper } = require('../helpers/file-helpers')
+const { getUser } = require('../helpers/auth-helpers')
 
 const userController = {
   signUpPage: (req, res) => {
@@ -48,17 +49,33 @@ const userController = {
   getUser: (req, res, next) => {
     const id = req.params.id
     return User.findByPk(id, {
-      include: { model: Comment, include: Restaurant }
+      include: [{
+        model: Comment, attributes: ['restaurantId'], include: Restaurant
+      }, {
+        model: Restaurant, as: 'FavoritedRestaurants', attributes: ['id', 'image']
+      }, {
+        model: User, as: 'Followings', attributes: ['id', 'image']
+      }, {
+        model: User, as: 'Followers', attributes: ['id', 'image']
+      }]
     })
       .then(user => {
         if (!user) throw new Error("User dosen't exist!")
 
-        return res.render('users/profile', { user: user.toJSON() })
+        const results = user.toJSON()
+        // 移除重複評論餐廳
+        results.Comments = results.Comments?.filter((comment, index, array) => {
+          return array.findIndex(element => element.restaurantId === comment.restaurantId) === index
+        })
+
+        return res.render('users/profile', { user: results })
       })
       .catch(err => next(err))
   },
   editUser: (req, res, next) => {
     const id = req.params.id
+
+    if (Number(id) !== getUser(req).id) throw new Error('不能編輯其他人的資料')
 
     return User.findByPk(id, {
       raw: true,
@@ -77,7 +94,7 @@ const userController = {
     const { file } = req
 
     if (!name) throw new Error('User name is required!')
-    if (Number(id) !== req.user.id) throw new Error('不能編輯其他人的資料')
+    if (Number(id) !== getUser(req).id) throw new Error('不能編輯其他人的資料')
 
     return Promise.all([
       User.findByPk(id),
